@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outlet performance</title>
+<style>
+  :root {
+    --bg: #f4f3f0;
+    --card: #ffffff;
+    --ink: #2b2d31;
+    --muted: #8a8d93;
+    --line: #e7e5e0;
+    --bar: #9aa5b1;
+    --bad: #c9453f;
+    --accent: #e8772e;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+  h1 { margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -0.01em; }
+  h1::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); margin-right: 10px; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .filters { display: flex; gap: 6px; background: var(--card); padding: 4px; border-radius: 999px; border: 1px solid var(--line); }
+  .filters button {
+    border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 550;
+    padding: 7px 16px; border-radius: 999px; cursor: pointer; transition: all .15s;
+  }
+  .filters button:hover { color: var(--ink); }
+  .filters button.active { background: var(--accent); color: #fff; }
+  .filters button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+  .kpi .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .kpi .value { font-size: 30px; font-weight: 650; margin-top: 8px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .kpi .note { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+  .kpi .value.bad { color: var(--bad); }
+
+  .grid { display: grid; grid-template-columns: 1.7fr 1fr; gap: 16px; }
+  h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  .card .hint { font-size: 12.5px; color: var(--muted); margin-bottom: 18px; }
+
+  /* chart */
+  .chart { position: relative; height: 260px; margin-left: 36px; border-bottom: 1px solid var(--line); }
+  .gridline { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line); }
+  .gridline span { position: absolute; left: -36px; top: -8px; font-size: 11px; color: var(--muted); width: 30px; text-align: right; }
+  .gridline.target { border-top: 1.5px dashed var(--accent); }
+  .gridline.target span { color: var(--accent); }
+  .gridline.thresh { border-top: 1px dashed #e3b5b2; }
+  .bars { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 8px; padding: 0 6px; }
+  .bar { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; }
+  .bar .fill { width: 100%; max-width: 44px; background: var(--bar); border-radius: 6px 6px 0 0; transition: height .35s ease; }
+  .bar.low .fill { background: var(--bad); }
+  .bar .pct { font-size: 11.5px; font-weight: 600; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  .bar.low .pct { color: var(--bad); }
+  .xlabels { display: flex; gap: 8px; padding: 8px 6px 0 42px; }
+  .xlabels div { flex: 1; min-width: 0; text-align: center; font-size: 11px; color: var(--muted); line-height: 1.35; }
+  .xlabels b { display: block; color: var(--ink); font-weight: 600; font-size: 11.5px; }
+  .legend { display: flex; gap: 16px; margin-top: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  /* attention list */
+  .att { list-style: none; margin: 0; padding: 0; }
+  .att li { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+  .att li:first-child { border-top: 0; padding-top: 0; }
+  .att .name { font-weight: 600; font-size: 14px; }
+  .att .meta { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .att .badge { background: #fbeceb; color: var(--bad); font-weight: 650; font-size: 13px; padding: 4px 10px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--muted); font-size: 13.5px; padding: 8px 0; }
+  .error { color: var(--bad); }
+
+  @media (max-width: 900px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 520px) {
+    .kpi .value { font-size: 24px; }
+    .bar .pct { font-size: 10px; }
+    .xlabels div { font-size: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Outlet performance</h1>
+      <div class="sub" id="range">Loading…</div>
+    </div>
+    <div class="filters" id="filters" role="group" aria-label="Filter by outlet"></div>
+  </header>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Sales as % of target</h2>
+      <div class="hint">One bar per outlet-week. Red = below 90% of target.</div>
+      <div class="chart" id="chart"></div>
+      <div class="xlabels" id="xlabels"></div>
+      <div class="legend">
+        <span><i style="background:var(--bar)"></i>90% or above</span>
+        <span><i style="background:var(--bad)"></i>Below 90%</span>
+        <span><i style="background:var(--accent)"></i>100% target</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Needs attention</h2>
+      <div class="hint">Outlet-weeks under 90% of target, worst first.</div>
+      <ul class="att" id="attention"></ul>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ------------------------------------------------------------------
+   DATA LOADING — the only place data comes from.
+   To connect Supabase later, replace the body of loadData() so it
+   returns an array of objects shaped like:
+     { outlet: 'Tampines', week: '2026-09-07', sales: 18400,
+       target: 18000, orders: 612, returns: 9 }
+   Example:
+     const { data, error } = await supabase.from('outlet_weeks').select('*');
+     if (error) throw error;
+     return data;
+------------------------------------------------------------------- */
+async function loadData() {
+  const csv = `outlet,week,sales,target,orders,returns
+Tampines,2026-09-07,18400,18000,612,9
+Tampines,2026-09-14,16100,18000,540,14
+Tampines,2026-09-21,19200,18000,640,8
+Jurong,2026-09-07,14200,15000,488,11
+Jurong,2026-09-14,12600,15000,430,19
+Jurong,2026-09-21,15300,15000,512,10
+Orchard,2026-09-07,22500,24000,690,12
+Orchard,2026-09-14,20100,24000,612,21
+Orchard,2026-09-21,24800,24000,742,9`;
+  const [head, ...rows] = csv.trim().split("\n").map(l => l.split(","));
+  return rows.map(r => {
+    const o = Object.fromEntries(head.map((h, i) => [h, r[i]]));
+    return { outlet: o.outlet, week: o.week, sales: +o.sales, target: +o.target, orders: +o.orders, returns: +o.returns };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+const THRESHOLD = 90;
+const fmtInt = n => n.toLocaleString("en-SG");
+const fmtMoney = n => "$" + fmtInt(Math.round(n));
+const fmtPct = n => n.toFixed(1) + "%";
+const fmtDate = s => new Date(s + "T00:00:00").toLocaleDateString("en-SG", { day: "numeric", month: "short" });
+const sum = (arr, k) => arr.reduce((a, r) => a + r[k], 0);
+
+let ALL = [];
+let current = "All";
+
+function render() {
+  const rows = current === "All" ? ALL : ALL.filter(r => r.outlet === current);
+  renderKpis(rows);
+  renderChart(rows);
+  renderAttention(rows);
+  document.querySelectorAll("#filters button").forEach(b =>
+    b.classList.toggle("active", b.dataset.outlet === current));
+}
+
+function renderKpis(rows) {
+  const sales = sum(rows, "sales"), target = sum(rows, "target");
+  const orders = sum(rows, "orders"), returns = sum(rows, "returns");
+  const pct = target ? sales / target * 100 : 0;
+  const retPct = orders ? returns / orders * 100 : 0;
+  const gap = sales - target;
+  const cards = [
+    { label: "Total sales", value: fmtMoney(sales), note: `Target ${fmtMoney(target)}` },
+    { label: "% of target", value: fmtPct(pct), note: (gap >= 0 ? "+" : "−") + fmtMoney(Math.abs(gap)) + " vs target", bad: pct < THRESHOLD },
+    { label: "Orders", value: fmtInt(orders), note: `${fmtMoney(orders ? sales / orders : 0)} avg. order` },
+    { label: "Returns %", value: fmtPct(retPct), note: `${fmtInt(returns)} returns` },
+  ];
+  document.getElementById("kpis").innerHTML = cards.map(c => `
+    <div class="card kpi">
+      <div class="label">${c.label}</div>
+      <div class="value ${c.bad ? "bad" : ""}">${c.value}</div>
+      <div class="note">${c.note}</div>
+    </div>`).join("");
+}
+
+function renderChart(rows) {
+  const MAX = 120; // axis ceiling in %
+  const lines = [0, 50, 90, 100].map(v => {
+    const cls = v === 100 ? "target" : v === 90 ? "thresh" : "";
+    return `<div class="gridline ${cls}" style="bottom:${v / MAX * 100}%"><span>${v}%</span></div>`;
+  }).join("");
+  const bars = rows.map(r => {
+    const p = r.target ? r.sales / r.target * 100 : 0;
+    const low = p < THRESHOLD;
+    return `<div class="bar ${low ? "low" : ""}" title="${r.outlet}, w/c ${fmtDate(r.week)}: ${fmtMoney(r.sales)} of ${fmtMoney(r.target)} (${fmtPct(p)})">
+      <div class="pct">${p.toFixed(0)}%</div>
+      <div class="fill" style="height:${Math.min(p, MAX) / MAX * 100}%"></div>
+    </div>`;
+  }).join("");
+  document.getElementById("chart").innerHTML = lines + `<div class="bars">${bars}</div>`;
+  document.getElementById("xlabels").innerHTML = rows.map(r =>
+    `<div><b>${r.outlet}</b>${fmtDate(r.week)}</div>`).join("");
+}
+
+function renderAttention(rows) {
+  const low = rows
+    .map(r => ({ ...r, p: r.target ? r.sales / r.target * 100 : 0 }))
+    .filter(r => r.p < THRESHOLD)
+    .sort((a, b) => a.p - b.p);
+  const el = document.getElementById("attention");
+  if (!low.length) { el.innerHTML = `<li class="empty">Nothing under ${THRESHOLD}% — all clear.</li>`; return; }
+  el.innerHTML = low.map(r => `
+    <li>
+      <div>
+        <div class="name">${r.outlet} · w/c ${fmtDate(r.week)}</div>
+        <div class="meta">${fmtMoney(r.sales)} vs ${fmtMoney(r.target)} · short ${fmtMoney(r.target - r.sales)}</div>
+      </div>
+      <span class="badge">${fmtPct(r.p)}</span>
+    </li>`).join("");
+}
+
+async function init() {
+  try {
+    ALL = await loadData();
+  } catch (e) {
+    document.getElementById("range").innerHTML = `<span class="error">Couldn't load data: ${e.message}</span>`;
+    return;
+  }
+  const weeks = [...new Set(ALL.map(r => r.week))].sort();
+  document.getElementById("range").textContent =
+    `Weeks of ${fmtDate(weeks[0])} – ${fmtDate(weeks[weeks.length - 1])} ${weeks[weeks.length - 1].slice(0, 4)}`;
+  const outlets = ["All", ...new Set(ALL.map(r => r.outlet))];
+  const f = document.getElementById("filters");
+  f.innerHTML = outlets.map(o => `<button type="button" data-outlet="${o}">${o}</button>`).join("");
+  f.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (b) { current = b.dataset.outlet; render(); }
+  });
+  render();
+}
+init();
+</script>
+</body>
+</html>
