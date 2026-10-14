@@ -122,31 +122,27 @@
 <script>
 /* ------------------------------------------------------------------
    DATA LOADING — the only place data comes from.
-   To connect Supabase later, replace the body of loadData() so it
-   returns an array of objects shaped like:
-     { outlet: 'Tampines', week: '2026-09-07', sales: 18400,
-       target: 18000, orders: 612, returns: 9 }
-   Example:
-     const { data, error } = await supabase.from('outlet_weeks').select('*');
-     if (error) throw error;
-     return data;
+   Reads the public.outlet_weeks table from Supabase over its REST API.
+   The publishable key is safe in the browser: row-level security on the
+   table only allows SELECT, so this page can read but never write.
 ------------------------------------------------------------------- */
+const SUPABASE_URL = "https://djeeexzbmrpkjxibuesc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_wC2iNJBQpEBmRlMGVKLEdQ_P6XSvpyX";
+
 async function loadData() {
-  const csv = `outlet,week,sales,target,orders,returns
-Tampines,2026-09-07,18400,18000,612,9
-Tampines,2026-09-14,16100,18000,540,14
-Tampines,2026-09-21,19200,18000,640,8
-Jurong,2026-09-07,14200,15000,488,11
-Jurong,2026-09-14,12600,15000,430,19
-Jurong,2026-09-21,15300,15000,512,10
-Orchard,2026-09-07,22500,24000,690,12
-Orchard,2026-09-14,20100,24000,612,21
-Orchard,2026-09-21,24800,24000,742,9`;
-  const [head, ...rows] = csv.trim().split("\n").map(l => l.split(","));
-  return rows.map(r => {
-    const o = Object.fromEntries(head.map((h, i) => [h, r[i]]));
-    return { outlet: o.outlet, week: o.week, sales: +o.sales, target: +o.target, orders: +o.orders, returns: +o.returns };
+  const url = `${SUPABASE_URL}/rest/v1/outlet_weeks`
+    + "?select=outlet,week,sales,target,orders,returns&order=id.asc";
+  const res = await fetch(url, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
   });
+  if (!res.ok) throw new Error(`Supabase returned ${res.status}`);
+  const data = await res.json();
+  // numeric columns can arrive as strings, so coerce to numbers
+  return data.map(r => ({
+    outlet: r.outlet, week: r.week,
+    sales: Number(r.sales), target: Number(r.target),
+    orders: Number(r.orders), returns: Number(r.returns),
+  }));
 }
 
 /* ------------------------------------------------------------------ */
