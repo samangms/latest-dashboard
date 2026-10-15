@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sump Pump Monitor</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: operations console. Header, one summary strip, three tabs (pump board, fault queue, weekly summary). */
+:root{
+  --bg:#F2F5F6; --surface:#FFFFFF; --ink:#10212A; --muted:#546A75; --line:#D3DDE1;
+  --accent:#0B5E8C; --accent-ink:#FFFFFF;
+  --ok:#1F7A4D; --ok-bg:#E3F3EA; --fault:#B42E26; --fault-bg:#FBE6E4;
+  --high:#9A5A00; --high-bg:#FCEBD0; --off:#4B5B66; --off-bg:#E4E9EC;
+  --f-display:'Archivo','Helvetica Neue',Arial,sans-serif;
+  --f-body:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;
+  --f-mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0C171D; --surface:#13232B; --ink:#E6EEF1; --muted:#97AAB3; --line:#264049;
+  --accent:#5BB4E5; --accent-ink:#06202F;
+  --ok:#5ED09A; --ok-bg:#14382A; --fault:#FF8A80; --fault-bg:#42201E;
+  --high:#F2B35E; --high-bg:#3D2C10; --off:#A9B8C0; --off-bg:#22323A; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0C171D; --surface:#13232B; --ink:#E6EEF1; --muted:#97AAB3; --line:#264049;
+  --accent:#5BB4E5; --accent-ink:#06202F;
+  --ok:#5ED09A; --ok-bg:#14382A; --fault:#FF8A80; --fault-bg:#42201E;
+  --high:#F2B35E; --high-bg:#3D2C10; --off:#A9B8C0; --off-bg:#22323A; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance}
+h1{font-size:30px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:20px;font-weight:700}
+h3{font-size:16px;font-weight:700}
+.mono{font-family:var(--f-mono)}
+.muted{color:var(--muted)}
+.top{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;justify-content:space-between}
+.top p{margin:4px 0 0;color:var(--muted)}
+.chip{font-family:var(--f-mono);font-size:12px;letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--line);color:var(--muted);padding:4px 10px;border-radius:99px;background:var(--surface)}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stat{padding:14px 16px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);margin:0 -1px -1px 0;min-width:0}
+.stat b{display:block;font-family:var(--f-display);font-size:34px;line-height:1.05;font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:var(--muted)}
+.stat.is-fault b{color:var(--fault)} .stat.is-high b{color:var(--high)} .stat.is-ok b{color:var(--ok)} .stat.is-off b{color:var(--off)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{appearance:none;background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;font:600 15px var(--f-body);color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tab .n{font-family:var(--f-mono);font-size:12px;background:var(--fault-bg);color:var(--fault);border-radius:99px;padding:1px 7px;margin-left:6px}
+button:focus-visible,.tile:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.f{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 14px var(--f-body);padding:6px 12px;border-radius:99px;cursor:pointer}
+.f[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(172px,1fr));gap:12px}
+.tile{appearance:none;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;cursor:pointer;color:var(--ink);font:inherit;min-width:0}
+.tile:hover{border-color:var(--accent)}
+.tile[aria-current="true"]{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pid{font-family:var(--f-mono);font-weight:500;font-size:16px}
+.pill{font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.s-ok{background:var(--ok-bg);color:var(--ok)} .s-fault{background:var(--fault-bg);color:var(--fault)}
+.s-high{background:var(--high-bg);color:var(--high)} .s-offline{background:var(--off-bg);color:var(--off)}
+.loc{font-size:13px;color:var(--muted);min-height:2.6em}
+.bar{position:relative;height:8px;background:var(--off-bg);border-radius:4px;overflow:hidden}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+.bar.big{height:12px;border-radius:6px}
+.bar u{position:absolute;left:80%;top:0;bottom:0;width:2px;background:var(--ink);opacity:.55}
+.bar.none{background:repeating-linear-gradient(45deg,var(--off-bg),var(--off-bg) 6px,var(--line) 6px,var(--line) 12px)}
+.fill-ok{background:var(--ok)} .fill-fault{background:var(--fault)} .fill-high{background:var(--high)}
+.small{font-size:13px;color:var(--muted)}
+.due{color:var(--high);font-weight:600}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:20px}
+.panel>div{min-width:0;display:flex;flex-direction:column;gap:10px}
+label{font-size:13px;font-weight:600}
+select,textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+textarea{resize:vertical;min-height:64px}
+.btn{appearance:none;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);font:600 14px var(--f-body);padding:8px 14px;border-radius:8px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.list{display:flex;flex-direction:column;gap:12px}
+.fault{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.fault.late{border-color:var(--fault)}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.step{border-top:3px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.step.done{border-top-color:var(--ok)}
+.step.next{border-top-color:var(--accent)}
+.step.late{border-top-color:var(--fault)}
+.step b{font-size:14px}
+.timer{font-weight:600;font-variant-numeric:tabular-nums}
+.timer.late{color:var(--fault)}
+.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th,.tbl td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.num{font-variant-numeric:tabular-nums}
+.empty{border:1px dashed var(--line);border-radius:10px;padding:28px 16px;text-align:center;color:var(--muted)}
+.reminder{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.reminder pre{margin:0;white-space:pre-wrap;font:14px/1.5 var(--f-body);background:var(--bg);border-radius:8px;padding:12px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;max-width:calc(100% - 32px)}
+footer{font-size:13px;color:var(--muted)}
+@media (max-width:760px){
+  .panel{grid-template-columns:minmax(0,1fr)}
+  .steps{grid-template-columns:minmax(0,1fr)}
+  h1{font-size:25px}
+}
+@media (prefers-reduced-motion:no-preference){.tile,.f,.btn{transition:border-color .15s,background .15s}}
+html{color-scheme:light}body{margin:0}
+</style>
+
+</head>
+<body>
+<script>
+/* Standalone build: replaces the Claude "db" store with a small in-browser store (localStorage).
+   Mock data is generated relative to the first time the page is opened. Changes stay in this browser only. */
+(function(){
+var KEY='sump_pump_monitor_v1';
+var PUMPS=[["P01", "Blk 1 · Basement 1 ramp", 28, "ok", 784051000], ["P02", "Blk 1 · Basement 2 lift pit", 35, "ok", 782251000], ["P03", "Blk 2 · Basement 1 carpark", 91, "high", 697651000], ["P04", "Blk 2 · Basement 2 lift pit", 41, "ok", 695251000], ["P05", "Blk 3 · Basement 1 ramp", 33, "ok", 412351000], ["P06", "Blk 3 · Fire pump room", 24, "ok", 3116851000], ["P07", "Blk 4 · Basement 1 carpark", 47, "ok", 610651000], ["P08", "Blk 4 · Basement 2 ramp", 62, "fault", 608251000], ["P09", "Blk 5 · Basement 1 carpark", 39, "ok", 261451000], ["P10", "Blk 5 · Lift pit", 30, "ok", 606451000], ["P11", "Clubhouse · Basement", 22, "ok", 524851000], ["P12", "Clubhouse · Gym drain", 0, "offline", 523051000], ["P13", "Pool deck · Plant room", 44, "ok", 521251000], ["P14", "Pool deck · Perimeter drain", 52, "ok", 519451000], ["P15", "Main entrance · Driveway sump", 36, "ok", 3721651000], ["P16", "Drop-off porch · Sump", 27, "ok", 870451000], ["P17", "Visitors carpark · B1 ramp", 58, "fault", 868051000], ["P18", "Visitors carpark · B1 low point", 43, "ok", 866251000], ["P19", "Landscape deck · Podium A", 31, "ok", 780451000], ["P20", "Landscape deck · Podium B", 29, "ok", 778651000], ["P21", "Playground · Perimeter drain", 38, "ok", 166651000], ["P22", "Tennis court · Drain pit", 34, "ok", 3030451000], ["P23", "Guardhouse · Sump", 25, "ok", 692251000], ["P24", "Refuse centre · Sump", 46, "ok", 604051000], ["P25", "Service road · Drain pit", 32, "ok", 602251000]];
+var FAULTS=[["F001", "P08", "Pump fault", "Motor tripped, panel alarm", 331000, null, null, null], ["F002", "P17", "Pump fault", "Float switch stuck", 2131000, 1591000, null, null], ["F003", "P03", "High water", "Level above 85% after heavy rain", 1111000, null, null, null], ["F004", "P12", "Offline", "No signal from the pump panel since yesterday", 96151000, 95731000, 94051000, null], ["F005", "P21", "Pump fault", "Float switch replaced", 265051000, 264571000, 262651000, 166651000], ["F006", "P05", "High water", "Impeller cleared of debris", 424051000, 422551000, 420451000, 412351000], ["F007", "P09", "Pump fault", "Control relay replaced", 343651000, 342931000, 341251000, 261451000]];
+function seed(){
+  var n=Date.now();
+  function t(o){return o==null?null:new Date(n-o).toISOString()}
+  var s={pumps:{},faults:{}};
+  PUMPS.forEach(function(p){s.pumps[p[0]]={location:p[1],level:p[2],status:p[3],lastServiceAt:t(p[4])}});
+  FAULTS.forEach(function(f){s.faults[f[0]]={pumpId:f[1],type:f[2],note:f[3],detectedAt:t(f[4]),alertApprovedAt:t(f[5]),contractorApprovedAt:t(f[6]),closedAt:t(f[7])}});
+  return s;
+}
+var mem=null;
+function load(){try{var r=localStorage.getItem(KEY);if(r){mem=JSON.parse(r);return}}catch(e){}mem=seed();save()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(mem))}catch(e){}}
+var subs={};
+function snap(col){
+  var ids=Object.keys(mem[col]||{}).sort();
+  var docs=ids.map(function(id){var d=mem[col][id];return {id:id,exists:true,data:function(){return d}}});
+  return {docs:docs,size:docs.length,empty:!docs.length};
+}
+function notify(col){(subs[col]||[]).forEach(function(cb){cb(snap(col))})}
+var db={
+  collection:function(col){return {
+    onSnapshot:function(next){(subs[col]=subs[col]||[]).push(next);setTimeout(function(){next(snap(col))},0);return function(){}},
+    add:function(data){var id='F'+String(Date.now()).slice(-8);mem[col]=mem[col]||{};mem[col][id]=data;save();notify(col);return Promise.resolve({id:id})}
+  }},
+  doc:function(path){var a=path.split('/');return {update:function(patch){var d=(mem[a[0]]||{})[a[1]];if(!d)return Promise.reject({code:'invalid_argument'});Object.assign(d,patch);save();notify(a[0]);return Promise.resolve()}}}
+};
+load();
+window.claude={use:function(n){return Promise.resolve(n==='db'?db:null)}};
+})();
+</script>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Sump Pump Monitor</h1>
+      <p>25 sump pumps across the estate. Status, faults and approvals in one place.</p>
+    </div>
+    <span class="chip">Mock data</span>
+  </header>
+  <div id="strip" class="strip" aria-label="Estate summary"></div>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <main id="main"><div class="empty">Loading pump data…</div></main>
+  <footer>Mock data for demonstration. Approvals are recorded in this app only; no email, WhatsApp or contractor message is sent from here. Changes are saved in this browser only. Singapore time.</footer>
+</div>
+<div id="toast" hidden></div>
+
+<script>
+(function(){
+var db=null, pumps=[], faults=[], gotP=false, gotF=false;
+var tab='board', filter='all', selected=null;
+var TARGET=15, OVERDUE_DAYS=31;
+var ST={ok:'Running',fault:'Fault',high:'High water',offline:'Offline'};
+var TYPE2ST={'Pump fault':'fault','High water':'high','Offline':'offline'};
+function $(s){return document.querySelector(s)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function ts(v){return v?new Date(v).getTime():null}
+function fmt(v){return new Date(v).toLocaleString('en-SG',{timeZone:'Asia/Singapore',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',hour12:false})}
+function fmtD(v){return new Date(v).toLocaleDateString('en-SG',{timeZone:'Asia/Singapore',day:'numeric',month:'short'})}
+function mins(a,b){return Math.round((b-a)/60000)}
+function dur(m){if(m<60)return m+' min';var h=Math.floor(m/60);if(h<24)return h+' h '+(m%60)+' min';var d=Math.floor(h/24);return d+' d '+(h%24)+' h'}
+function overdue(p){return p.lastServiceAt&&(Date.now()-ts(p.lastServiceAt))/864e5>OVERDUE_DAYS}
+function openFaults(){return faults.filter(function(f){return !f.closedAt}).sort(function(a,b){return ts(a.detectedAt)-ts(b.detectedAt)})}
+function pumpOf(id){return pumps.find(function(p){return p.id===id})}
+function toast(m){var t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(function(){t.hidden=true},3500)}
+function nextKey(f){return !f.alertApprovedAt?'alertApprovedAt':!f.contractorApprovedAt?'contractorApprovedAt':'closedAt'}
+
+function renderStrip(){
+  var c={ok:0,fault:0,high:0,offline:0},od=0;
+  pumps.forEach(function(p){c[p.status]=(c[p.status]||0)+1;if(overdue(p))od++});
+  var pend=openFaults().length;
+  var items=[['ok','Running',c.ok],['fault','Fault',c.fault],['high','High water',c.high],['off','Offline',c.offline],['','Check overdue',od],['','Awaiting your approval',pend]];
+  $('#strip').innerHTML=items.map(function(i){return '<div class="stat '+(i[0]?'is-'+i[0]:'')+'"><b>'+i[2]+'</b><span>'+i[1]+'</span></div>'}).join('');
+}
+function renderTabs(){
+  var n=openFaults().length;
+  var t=[['board','Pump board'],['queue','Fault queue'+(n?'<span class="n">'+n+'</span>':'')],['week','Weekly summary']];
+  $('#tabs').innerHTML=t.map(function(x){return '<button class="tab" role="tab" data-act="tab" data-v="'+x[0]+'" aria-selected="'+(tab===x[0])+'">'+x[1]+'</button>'}).join('');
+}
+function tileHTML(p){
+  var lvl=p.status==='offline'?'<div class="bar none"></div><span class="small">No signal</span>':
+    '<div class="bar"><i class="fill-'+p.status+'" style="width:'+Math.max(2,p.level)+'%"></i><u></u></div><span class="small num">Level '+p.level+'%</span>';
+  return '<button class="tile" data-act="select" data-id="'+esc(p.id)+'" aria-current="'+(selected===p.id)+'">'+
+    '<div class="row"><span class="pid">'+esc(p.id)+'</span><span class="pill s-'+p.status+'">'+ST[p.status]+'</span></div>'+
+    '<div class="loc">'+esc(p.location)+'</div>'+lvl+
+    '<span class="small">Serviced '+(p.lastServiceAt?fmtD(p.lastServiceAt):'never')+(overdue(p)?' · <span class="due">Check overdue</span>':'')+'</span></button>';
+}
+function panelHTML(p){
+  var of=openFaults().find(function(f){return f.pumpId===p.id});
+  var lvl=p.status==='offline'?'<div class="bar big none"></div><span class="small">No signal from the pump panel</span>':
+    '<div class="bar big"><i class="fill-'+p.status+'" style="width:'+Math.max(2,p.level)+'%"></i><u></u></div><span class="small num">Level '+p.level+'% · high-water alarm at 80%</span>';
+  var form=of?'<div class="empty">This pump has an open fault. Handle it in the Fault queue.</div><div class="btns"><button class="btn" data-act="tab" data-v="queue">Open fault queue</button></div>':
+    '<label for="ftype">Report an issue</label><select id="ftype"><option>Pump fault</option><option>High water</option><option>Offline</option></select>'+
+    '<label for="note">Note</label><textarea id="note" placeholder="What the panel or the contractor reported"></textarea>'+
+    '<div class="btns"><button class="btn" data-act="report" data-id="'+esc(p.id)+'">Log fault</button></div>';
+  return '<section class="panel" id="panel"><div>'+
+    '<div class="row"><h2><span class="mono">'+esc(p.id)+'</span> · '+esc(p.location)+'</h2><button class="btn ghost" data-act="closePanel">Close</button></div>'+
+    '<span class="pill s-'+p.status+'" style="align-self:flex-start">'+ST[p.status]+'</span>'+lvl+
+    '<span class="small">Last serviced '+(p.lastServiceAt?fmtD(p.lastServiceAt):'never')+(overdue(p)?' · <span class="due">Check overdue</span>':'')+'</span>'+
+    '<div class="btns"><button class="btn ghost" data-act="service" data-id="'+esc(p.id)+'">Record service today</button></div></div>'+
+    '<div>'+form+'</div></section>';
+}
+function renderBoard(){
+  if(!pumps.length){$('#main').innerHTML='<div class="empty">No pump data yet. The 25 pumps will appear here once they are added.</div>';return}
+  var keepNote=$('#note')?$('#note').value:'', keepType=$('#ftype')?$('#ftype').value:'';
+  var fl=[['all','All'],['ok','Running'],['fault','Fault'],['high','High water'],['offline','Offline'],['overdue','Check overdue']];
+  var list=pumps.filter(function(p){return filter==='all'||(filter==='overdue'?overdue(p):p.status===filter)});
+  var sel=selected&&pumpOf(selected);
+  $('#main').innerHTML=(sel?panelHTML(sel):'')+
+    '<div class="filters" style="margin:'+(sel?'20px':'0')+' 0 12px">'+fl.map(function(x){return '<button class="f" data-act="filter" data-v="'+x[0]+'" aria-pressed="'+(filter===x[0])+'">'+x[1]+'</button>'}).join('')+'</div>'+
+    (list.length?'<div class="grid">'+list.map(tileHTML).join('')+'</div>':'<div class="empty">No pumps match this filter.</div>');
+  if($('#note')){$('#note').value=keepNote}
+  if($('#ftype')&&keepType){$('#ftype').value=keepType}
+}
+function timerHTML(f){
+  if(f.alertApprovedAt){var m=mins(ts(f.detectedAt),ts(f.alertApprovedAt));return '<span class="timer'+(m>TARGET?' late':'')+'">Alert approved in '+m+' min'+(m>TARGET?' (over '+TARGET+' min target)':' (within target)')+'</span>'}
+  var e=mins(ts(f.detectedAt),Date.now());
+  return e>TARGET?'<span class="timer late">'+dur(e)+' since detection · past the '+TARGET+'-min alert target</span>':'<span class="timer">'+e+' min since detection · '+(TARGET-e)+' min left to approve the alert</span>';
+}
+function faultHTML(f){
+  var p=pumpOf(f.pumpId)||{location:''};
+  var nk=nextKey(f), late=!f.alertApprovedAt&&mins(ts(f.detectedAt),Date.now())>TARGET;
+  var defs=[['detectedAt','Detected',null,'Pump panel signal'],['alertApprovedAt','Alert approved','Approve alert','Email and WhatsApp to the manager'],['contractorApprovedAt','Contractor notified','Approve work order','Work order to the term contractor'],['closedAt','Closed','Confirm repair and close','Manager confirms the repair is done']];
+  var steps=defs.map(function(d){
+    var done=!!f[d[0]], next=(d[0]===nk);
+    var cls='step'+(done?' done':next?(late&&d[0]==='alertApprovedAt'?' late':' next'):'');
+    var body=done?'<span class="small num">'+fmt(f[d[0]])+'</span>':next&&d[2]?'<button class="btn" data-act="advance" data-fid="'+esc(f.id)+'" data-k="'+d[0]+'">'+d[2]+'</button>':'<span class="small">Waiting</span>';
+    return '<li class="'+cls+'"><b>'+d[1]+'</b><span class="small">'+d[3]+'</span>'+body+'</li>';
+  }).join('');
+  return '<article class="fault'+(late?' late':'')+'" data-fid="'+esc(f.id)+'"><div class="row" style="align-items:flex-start;flex-wrap:wrap"><div><h3><span class="mono">'+esc(f.pumpId)+'</span> · '+esc(f.type)+'</h3><span class="small">'+esc(p.location)+(f.note?' · '+esc(f.note):'')+'</span></div><div data-timer="'+esc(f.id)+'">'+timerHTML(f)+'</div></div><ol class="steps">'+steps+'</ol></article>';
+}
+function renderQueue(){
+  var o=openFaults(), cl=faults.filter(function(f){return f.closedAt}).sort(function(a,b){return ts(b.closedAt)-ts(a.closedAt)}).slice(0,8);
+  var html='<div class="list">'+(o.length?o.map(faultHTML).join(''):'<div class="empty">No open faults. Every pump is clear.</div>')+'</div>';
+  if(cl.length){html+='<h2 style="margin:24px 0 12px">Recently closed</h2><div class="scroll"><table class="tbl"><thead><tr><th>Pump</th><th>Issue</th><th>Detected</th><th>Alert approved in</th><th>Closed</th></tr></thead><tbody>'+
+    cl.map(function(f){var m=f.alertApprovedAt?mins(ts(f.detectedAt),ts(f.alertApprovedAt)):null;
+      return '<tr><td class="mono">'+esc(f.pumpId)+'</td><td>'+esc(f.type)+'</td><td class="num">'+fmt(f.detectedAt)+'</td><td class="num">'+(m==null?'-':m+' min'+(m>TARGET?' (late)':''))+'</td><td class="num">'+fmt(f.closedAt)+'</td></tr>'}).join('')+'</tbody></table></div>'}
+  $('#main').innerHTML=html;
+}
+function weekStats(){
+  var from=Date.now()-7*864e5;
+  var w=faults.filter(function(f){return ts(f.detectedAt)>=from});
+  var al=w.filter(function(f){return f.alertApprovedAt}).map(function(f){return mins(ts(f.detectedAt),ts(f.alertApprovedAt))}).sort(function(a,b){return a-b});
+  var met=al.filter(function(m){return m<=TARGET}).length;
+  var med=al.length?(al.length%2?al[(al.length-1)/2]:Math.round((al[al.length/2-1]+al[al.length/2])/2)):null;
+  var o=openFaults();
+  return {logged:w.length,closed:w.filter(function(f){return f.closedAt}).length,open:o.length,
+    needAlert:o.filter(function(f){return !f.alertApprovedAt}).length,needWO:o.filter(function(f){return f.alertApprovedAt&&!f.contractorApprovedAt}).length,
+    needClose:o.filter(function(f){return f.contractorApprovedAt}).length,met:met,total:al.length,med:med,
+    overdue:pumps.filter(overdue).map(function(p){return p.id})};
+}
+function reminderText(s){
+  var L=['Weekly reminder for the 25 sump pumps in the estate.','',
+    'Faults this week: '+s.logged+' logged, '+s.closed+' closed, '+s.open+' still open.',
+    'Waiting on you: '+s.needAlert+' alert approval(s), '+s.needWO+' contractor work order(s), '+s.needClose+' repair confirmation(s).',
+    'Alerts approved within '+TARGET+' minutes: '+s.met+' of '+s.total+(s.med!=null?' (median '+s.med+' min).':'.'),
+    'Monthly check overdue: '+(s.overdue.length?s.overdue.join(', '):'none')+'.','',
+    'Please send me the latest service reports so the log stays current.'];
+  return L.join('\n');
+}
+function renderWeek(){
+  var s=weekStats();
+  $('#main').innerHTML='<div class="strip" style="margin-bottom:20px">'+
+    [['Faults logged (7 days)',s.logged],['Closed',s.closed],['Still open',s.open],['Alerts within '+TARGET+' min',s.met+' of '+s.total],['Median time to alert',s.med==null?'-':s.med+' min']].map(function(i){return '<div class="stat"><b>'+i[1]+'</b><span>'+i[0]+'</span></div>'}).join('')+'</div>'+
+    '<div class="panel" style="margin-bottom:20px"><div><h3>Waiting on you</h3><span class="num">'+s.needAlert+' alert approval(s)</span><span class="num">'+s.needWO+' contractor work order(s)</span><span class="num">'+s.needClose+' repair confirmation(s)</span></div>'+
+    '<div><h3>Monthly check overdue</h3>'+(s.overdue.length?'<span class="mono">'+s.overdue.map(esc).join(', ')+'</span>':'<span class="muted">None. Every pump was serviced in the last '+OVERDUE_DAYS+' days.</span>')+'</div></div>'+
+    '<div class="reminder"><h3>Monday reminder preview</h3><pre id="rem">'+esc(reminderText(s))+'</pre><div class="btns"><button class="btn" data-act="copy">Copy text</button></div></div>';
+}
+function render(){
+  if(!gotP||!gotF){return}
+  renderStrip();renderTabs();
+  if(tab==='board')renderBoard();else if(tab==='queue')renderQueue();else renderWeek();
+}
+function tick(){
+  if(tab!=='queue')return;
+  openFaults().forEach(function(f){var el=document.querySelector('[data-timer="'+f.id+'"]');if(el)el.innerHTML=timerHTML(f)});
+}
+async function advance(fid,k){
+  var f=faults.find(function(x){return x.id===fid});if(!f)return;
+  var patch={};patch[k]=new Date().toISOString();
+  try{
+    await db.doc('faults/'+fid).update(patch);
+    if(k==='closedAt'){await db.doc('pumps/'+f.pumpId).update({status:'ok',level:38})}
+    toast(k==='alertApprovedAt'?'Alert approved.':k==='contractorApprovedAt'?'Work order approved.':'Fault closed.');
+  }catch(e){toast('Could not save. Try again.')}
+}
+async function report(id){
+  var type=$('#ftype').value, note=$('#note').value.trim();
+  if(openFaults().some(function(f){return f.pumpId===id})){toast('This pump already has an open fault.');return}
+  try{
+    await db.collection('faults').add({pumpId:id,type:type,note:note,detectedAt:new Date().toISOString(),alertApprovedAt:null,contractorApprovedAt:null,closedAt:null});
+    var st=TYPE2ST[type]; var patch={status:st}; if(st==='high')patch.level=90;
+    await db.doc('pumps/'+id).update(patch);
+    selected=null;tab='queue';render();toast('Fault logged. Approve the alert within '+TARGET+' minutes.');
+  }catch(e){toast('Could not save. Try again.')}
+}
+async function service(id){
+  try{await db.doc('pumps/'+id).update({lastServiceAt:new Date().toISOString()});toast('Service recorded.')}catch(e){toast('Could not save. Try again.')}
+}
+document.addEventListener('click',function(e){
+  var el=e.target.closest('[data-act]');if(!el)return;
+  var a=el.dataset.act;
+  if(a==='tab'){tab=el.dataset.v;render()}
+  else if(a==='filter'){filter=el.dataset.v;render()}
+  else if(a==='select'){selected=(selected===el.dataset.id)?null:el.dataset.id;render();if(selected){var p=$('#panel');if(p)p.scrollIntoView({block:'nearest'})}}
+  else if(a==='closePanel'){selected=null;render()}
+  else if(a==='advance'){advance(el.dataset.fid,el.dataset.k)}
+  else if(a==='report'){report(el.dataset.id)}
+  else if(a==='service'){service(el.dataset.id)}
+  else if(a==='copy'){
+    var t=$('#rem').textContent;
+    (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(t):Promise.reject()).then(function(){toast('Copied.')},function(){
+      var r=document.createRange();r.selectNodeContents($('#rem'));var s=getSelection();s.removeAllRanges();s.addRange(r);toast('Text selected. Press copy.')});
+  }
+});
+(async function(){
+  try{db=window.claude&&window.claude.use?await window.claude.use('db'):null}catch(e){db=null}
+  if(!db){$('#main').innerHTML='<div class="empty">This view cannot load or save pump data. Open the page in claude.ai.</div>';return}
+  var onErr=function(){$('#main').innerHTML='<div class="empty">Pump data could not be loaded. Reload the page.</div>'};
+  db.collection('pumps').onSnapshot(function(s){pumps=s.docs.map(function(d){var o=Object.assign({},d.data());o.id=d.id;return o});gotP=true;render()},onErr);
+  db.collection('faults').onSnapshot(function(s){faults=s.docs.map(function(d){var o=Object.assign({},d.data());o.id=d.id;return o});gotF=true;render()},onErr);
+  setInterval(tick,30000);
+})();
+})();
+</script>
+
+</body>
+</html>
